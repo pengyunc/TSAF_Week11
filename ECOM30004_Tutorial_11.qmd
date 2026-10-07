@@ -1,0 +1,783 @@
+---
+title: |
+  <div class="tight-title">
+    <div>ECOM30004/90004</div>
+    <div>Time Series Analysis and Forecasting</div>
+     <div class="spacer"></div> <!-- blank line -->
+    <div class="bold">Tutorial 11</div>
+
+    <div class="spacer"></div> <!-- blank line -->
+
+    <div class="author">Tutor: Pengyun (Kevin) Chen</div>
+    <div class="author">University of Melbourne</div>
+    <div class="author">Semester 2, 2026</div>
+  </div>
+
+  
+format:
+  revealjs:
+    theme: simple
+    self-contained: true
+    chalkboard: false
+    width: 1300
+    height: 950
+    footer: 'Access Slides: `pengyunc.github.io/TSAF_Week11`'
+    title-slide-attributes:
+      data-background-color: "#000F46"
+    slide-number: true
+    center-title-slide: true
+    toc: false
+    css: styles.css
+    callout-appearance: simple
+    background-transition: fade
+    callout-icon: true
+    transition: slide
+    scrollable: true
+    code-block-height: 800px
+    code-line-numbers: true
+    mathjax: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"
+    html-math-method: mathjax
+    execute:
+      echo: true
+      eval: true
+      enabled: true
+---
+
+## Notice
+
+::: {.callout-warning title="Conditions of Use"}
+
+- This document is intended for personal use and is NOT meant to be shared on the internet (e.g. Studocu, ThinkSwap, StudentVIP, Coursehero, etc.)
+- Do not share this document with anyone, even if they are enrolled in ECOM30004/90004.
+- Official course materials, such as lecture slides, tutorial sheets and prescribed readings should always be your primary point of reference.
+
+:::
+<div style="height: 0.2em;"></div>
+ - Slides accessible here: `pengyunc.github.io/TSAF_Week11`
+ - Download HTML versions here: [Dropbox Link](https://www.dropbox.com/scl/fo/aoxoud5ex0j42hsrod3dg/ADblAt_jJ9hpESZME9FDcWc?rlkey=0s0oyf1y3uokzvlhbzxe2yy3g&st=kx2yupzr&dl=0)
+ - <blue>My consultations for Weeks 11 and 12:</blue>
+ $$\boxed{\;\textsf{Wednesday 3pm-4pm, FBE 455}\;}$$
+
+
+
+## This tutorial: Forecasting with AR-GARCH {auto-animate="true"}
+
+
+<blue>In this tutorial, we use an AR-GARCH model to generate ex-ante forecasts of S&P 500 returns and volatilities, and investigate whether non-normality materially affects forecasting performance.</blue>
+
+<div style="height: 0.5em;"></div> 
+
+:::{.callout-note title="Activities"} 
+
+- <blue>Exercise 1:</blue> Understanding R output
+- <blue>Exercise 2:</blue> Event Matching with estimated volatility series 
+- <blue>Exercise 3:</blue> Investigating the distributional properties of return series and standardised residuals 
+- <blue>Exercise 4:</blue> Constructing point forecasts and normal prediction intervals 
+- <blue>Exercise 5:</blue> Using bootstrapping to build empirical prediction intervals and comparing them with the normal case 
+
+:::
+
+
+## Initialisation
+
+<blue>In Self-Directed Activities 10, you have carried out a model specification exercise for the S&P 500 returns time series that comes with the `rugarch` package.
+
+You arrived at an AR(4)-GARCH(1,1) specification.</blue>
+<div class="horizontal-line"></div>
+Please install the R packages `rugarch` and `moments` before proceeding:
+```{r eval=FALSE}
+install.packages("rugarch")
+install.packages("moments")
+```
+<div style="height: 0.5em;"></div>
+Set up as follows:
+```{r}
+library(rugarch)
+library(moments)
+data("sp500ret")
+Y <- sp500ret$SP500RET*100
+
+h <- 5
+n <- length(Y)-h
+Yf <- ts(Y[(n+1):length(Y)], start=n+1)
+Y <- ts(Y[1:n], start=1, end=n)
+
+AR4GARCH11 <- ugarchfit(data=Y,
+    ugarchspec(variance.model=list(garchOrder=c(1,1)),
+               mean.model=list(armaOrder=c(4,0))))
+```
+
+## Exercise 1 {auto-animate="true"}
+
+:::{.callout-question}
+Write out the full set of estimated mean and variance equations that constitute this model.
+:::
+<div style="height: 0.5em;"></div>
+
+The estimated coefficients can be obtained as follows:
+```{r}
+print(round(coef(AR4GARCH11), 3))
+```
+
+:::{.fragment}
+<div class="horizontal-line"></div>
+The estimated AR(4)-GARCH(1,1) model is therefore:
+\begin{align}
+Y_{t}&=0.052+\widehat{Z}_{t}\\
+\widehat{Z}_{t}&=-0.01\widehat{Z}_{t-1}-0.015\widehat{Z}_{t-2}-0.019\widehat{Z}_{t-3}-0.043\widehat{Z}_{t-4}+\widehat{U}_{t}\\
+\widehat{\sigma}_{t}^{2}&=0.014+0.089\widehat{U}^{2}_{t-1}+0.904\widehat{\sigma}^{2}_{t-1}
+\end{align}
+:::
+
+
+## Exercise 2 {auto-animate="true"}
+:::{.callout-question}
+Obtain the time series of estimated standard deviations, denoted $\widehat{\sigma}_{t}=\sqrt{\widehat{\mathbb{E}}(U_{t}^{2}\mid\mathscr{Y}_{t-1})}$, implied by the model. Plot this series.
+:::
+<div style="height: 0.5em;"></div>
+```{r}
+AR4GARCH11_sigma <- ts(sigma(AR4GARCH11), start=1, end=n)
+
+plot(AR4GARCH11_sigma, 
+     main = "Estimated SD series from AR(4)-GARCH(1,1) model",
+     ylab = "Standard Deviation")
+```
+
+
+## Exercise 2 {auto-animate="true"}
+:::{.callout-question}
+Recalling the time series covers the period 10 March 1987 to 30 January 2009, discuss which "real world" events might correspond to the most volatile periods.
+:::
+<div style="height: 0.5em;"></div>
+```{r}
+AR4GARCH11_sigma <- ts(sigma(AR4GARCH11), start=1, end=n)
+
+plot(AR4GARCH11_sigma, 
+     main = "Estimated SD series from AR(4)-GARCH(1,1) model",
+     ylab = "Standard Deviation")
+```
+
+:::{.fragment}
+::: {.absolute top="500px" left="160px" style="font-size: 32px;"}
+<blue>$\longleftarrow\;\text{1987 Stock Market Crash}$</blue>
+:::
+:::
+
+:::{.fragment}
+::: {.absolute top="600px" left="520px" style="font-size: 32px;"}
+<purple>$\text{Global Financial Crisis}\;\longrightarrow$</purple>
+:::
+:::
+
+
+## Exercise 3(a) {auto-animate="true"}
+:::{.callout-question}
+(a) Compute the mean, standard deviation, skewness and kurtosis of the return series `Y`. The R commands `mean` and `sd` are standard, while `skewness` and `kurtosis` are obtained from the `moments` package.
+:::
+
+<div style="height: 0.5em;"></div>
+:::{.incremental}
+- The skewness and kurtosis are standard descriptive statistics given by:
+$$\text{Skewness}=\frac{\frac{1}{n}\sum^{n}_{t=1}(Y_{t}-\bar{Y})^{3}}{s^{3}};\quad\text{Kurtosis}=\frac{\frac{1}{n}\sum^{n}_{t=1}(Y_{t}-\bar{Y})^{4}}{s^{4}}$$
+where $s$ is the sample standard deviation.
+
+- <blue>Skewness:</blue> 
+  - $\text{Skewness}=0$ if the distribution is symmetric; 
+  - $\text{Skewness}>0$ if right-skewed;
+  - $\text{Skewness}<0$ if left-skewed.
+
+- <blue>Kurtosis:</blue> Measure of "tail thickness"
+
+  - When $\text{Kurtosis}>3$, the tails are "fatter" than a normal distribution (more outliers).
+:::
+
+
+## Exercise 3(a) {auto-animate="true"}
+:::{.callout-question}
+(a) Compute the mean, standard deviation, skewness and kurtosis of the return series `Y`. The R commands `mean` and `sd` are standard, while `skewness` and `kurtosis` are obtained from the `moments` package.
+:::
+<div style="height: 0.5em;"></div>
+
+:::{.panel-tabset}
+
+## Moments
+```{r}
+stats_Y = c(mean(Y), sd(Y), skewness(Y), kurtosis(Y))
+names(stats_Y) <- c("mean", "sd", "skewness", "kurtosis")
+print(round(stats_Y, 3))
+```
+<div class="horizontal-line"></div>
+
+- The mean return is slightly positive (share prices having a long term overall tendency to increase over this period). 
+
+- The skewness is negative ($-1.541$) and kurtosis of $\approx 36$ very much greater than 3, implying non-normality. 
+
+- Both skewness and kurtosis will be inflated in magnitude by the large negative outlier for the 1987 crash, as well as some of the other outliers.
+
+## Histogram
+```{r}
+hist(Y, breaks = 40, freq = FALSE, main = "Daily Returns on SP500 (%)")
+x <- seq(from=-10, to=10, length.out=100)
+lines(x, dnorm(x, mean=mean(Y), sd = sd(Y)), col="red", lwd=2)
+```
+
+
+::: {.absolute top="620px" left="370px" style="font-size: 32px;"}
+<red>$\mathrm{N}(0.019, 1.193^2)$</red>
+:::
+
+::: {.absolute top="530px" left="910px" style="font-size: 32px;"}
+The large kurtosis is evident in the long tails of the histogram, counterbalanced by the taller than normal peak around the mean.
+:::
+
+:::
+
+
+## Exercise 3(b) {auto-animate="true"}
+:::{.callout-question}
+(b) Obtain the standard residuals $\widehat{U}_{t}^*$ from the AR(4)-GARCH(1,1) model, and investigate their distribution in the same way as part (a).
+:::
+<div style="height: 0.5em;"></div>
+
+:::{.fragment}
+:::{.callout-tip}
+In a general AR($p$)-GARCH(1,1) model of the form
+\begin{align}
+Y_{t}&=\mu +Z_{t}\\
+Z_{t}&=\phi_{1}Z_{t-1}+\cdots+\phi_{p}Z_{t-p}+U_{t}\\
+\sigma_{t}^{2}&=\omega+\alpha_{1}U_{t-1}^{2}+\gamma_{1}\sigma^{2}_{t-1}
+\end{align}
+
+where $\sigma^{2}=\operatorname{var}(U_{t}\mid \mathscr{Y}_{t-1})$, the *standardised prediction errors $U_{t}^*$*
+$$U_{t}^{*}=\frac{U_{t}}{\sigma_{t}}$$
+will be <green>conditionally homoskedastic</green>, assuming the model is well specified:
+$$\operatorname{var}(U_{t}^*\mid\mathscr{Y}_{t-1})=1$$
+
+:::
+<div style="height: 0.2em;"></div>
+:::
+
+:::{.fragment}
+<blue>The distribution of these standardised prediction errors determines the distribution that is appropriate for the prediction intervals.</blue>
+:::
+
+:::{.incremental}
+- If $U_{t}^*$ is normally distributed then the normal prediction intervals will be correct.
+
+- Otherwise, the normal prediction intervals may be only approximate and not have the required 95% coverage property.
+:::
+
+
+## Exercise 3(b) {auto-animate="true"}
+:::{.callout-question}
+(b) Obtain the standard residuals $\widehat{U}_{t}^*$ from the AR(4)-GARCH(1,1) model, and investigate their distribution in the same way as part (a).
+:::
+<div style="height: 0.5em;"></div>
+
+```{r}
+Us <- residuals(AR4GARCH11, standardize = TRUE)
+```
+
+<div style="height: 0.5em;"></div>
+
+:::{.panel-tabset}
+
+## Moments
+```{r}
+stats_Us = c(mean(Us), sd(Us), skewness(Us), kurtosis(Us))
+names(stats_Us) <- c("mean", "sd", "skewness", "kurtosis")
+print(round(stats_Us, 3))
+```
+
+<div class="horizontal-line"></div>
+The descriptive statistics and histogram reveal that the residuals retain clear signs of non-normality <teal>(some negative skewness and substantial excess kurtosis)</teal> although these are reduced relative to the same measures for the original data series.
+
+## Histogram
+```{r}
+hist(Us, breaks = 40, freq = FALSE, 
+     main = "AR(4)-GARCH(1,1) Standardised Residuals")
+x <- seq(from=-10, to=5, length.out=100)
+lines(x, dnorm(x, mean=mean(Us), sd = sd(Us)), col="red", lwd=2)
+```
+::: {.absolute top="620px" left="380px" style="font-size: 32px;"}
+<red>$\mathrm{N}(0.035, 0.999^2)$</red>
+:::
+
+
+::: {.absolute top="560px" left="800px" style="font-size: 32px;"}
+It is commonly the case with GARCH models that the standardised residuals are closely to normality than the original data, but still not close to approximately normal.
+:::
+
+:::
+
+
+## Exercise 4
+:::{.callout-question}
+From the AR(4)-GARCH(1,1) model, obtain the point/mean forecasts for `Y` for 5 days into the future (one business week), the standard deviation for the forecasts, and the 95% normal prediction intervals. 
+:::
+
+<div style="height: 0.5em;"></div>
+:::{.panel-tabset}
+
+## Code
+
+```{r eval=FALSE}
+AR4GARCH11f <- ugarchforecast(AR4GARCH11, n.ahead=h)
+
+Point <- ts(c(fitted(AR4GARCH11f)), start=n+1, end=n+h)
+Sigma <- ts(c(sigma(AR4GARCH11f)), start=n+1, end=n+h)
+Lower <- ts(Point-1.96*Sigma, start=n+1, end=n+h)
+Upper <- ts(Point+1.96*Sigma, start=n+1, end=n+h)
+
+AR4GARCH11Forecasts <- data.frame(
+                          Lower=round(Lower,3),
+                          Point=round(Point,3),
+                          Upper=round(Upper,3),
+                          Actual=round(Yf,3),
+                          Error=round(Yf-Point,3),
+                          Sigma=round(Sigma,3))
+
+print(AR4GARCH11Forecasts, row.names=FALSE)
+```
+
+## Results and Discussions
+
+```{r echo=FALSE}
+AR4GARCH11f <- ugarchforecast(AR4GARCH11, n.ahead=h)
+
+Point <- ts(c(fitted(AR4GARCH11f)), start=n+1, end=n+h)
+Sigma <- ts(c(sigma(AR4GARCH11f)), start=n+1, end=n+h)
+Lower <- ts(Point-1.96*Sigma, start=n+1, end=n+h)
+Upper <- ts(Point+1.96*Sigma, start=n+1, end=n+h)
+
+AR4GARCH11Forecasts <- data.frame(
+                          Lower=round(Lower,3),
+                          Point=round(Point,3),
+                          Upper=round(Upper,3),
+                          Actual=round(Yf,3),
+                          Error=round(Yf-Point,3),
+                          Sigma=round(Sigma,3))
+
+print(AR4GARCH11Forecasts, row.names=FALSE)
+```
+
+<div class="horizontal-line"></div>
+:::{.callout-question}
+Do the prediction intervals "cover" the actual values?
+:::
+<div style="height: 0.5em;"></div>
+
+
+<blue>Yes -</blue> In this case the actual value turns out to lie within the prediction interval at all of the 5 forecast days.
+
+## Forecast Errors and RMSE
+
+:::{.callout-question}
+Also, compute the forecast errors and the RMSE.
+:::
+<div style="height: 0.5em;"></div>
+
+
+```{r}
+ForecastError <- Yf - Point
+print(ForecastError)
+```
+<div style="height: 0.5em;"></div>
+```{r}
+RMSE <- sqrt(mean(ForecastError^2))
+cat("The RMSE for the forecasts is", round(RMSE, 3), "\n")
+```
+:::
+
+
+## Exercise 5 {auto-animate="true"}
+
+:::{.callout-question}
+Given the apparent non-normality of the model residuals, we may be motivated to compute the PIs using the bootstrap, rather than using the normal distribution critical values.
+:::
+
+<div style="height: 0.5em;"></div>
+
+[<blue>Bootstrapping: </blue>Constructing an empirical distribution by resampling from the data itself]{.fragment} [<teal>$\to$ treat the observed sample as if it were the population distribution</teal>]{.fragment}
+<div style="height: 0.5em;"></div>
+
+:::{.fragment}
+```{r}
+AR4GARCH11fBS <- ugarchboot(AR4GARCH11, method="Partial", 
+                        n.ahead=h, n.bootpred=5000)
+```
+:::
+<div style="height: 0.5em;"></div>
+
+:::{.fragment}
+:::{.callout-note title="What is happening behind the scenes?"}
+
+In each bootstrapping experiment, when `method="Partial"`:
+
+:::{.incremental}
+- Construct the residuals using the estimated parameters 
+
+- Draw a bootstrapped sample (in our case, of length `n.ahead=h`), with replacement, from the observed set of residuals.
+
+- Recalculate the forecasts given this sample and construct PIs.
+:::
+
+[The number of experiments is set under `n.bootpred=5000`.]{.fragment}
+:::
+:::
+
+<div style="height: 0.2em;"></div>
+:::{.fragment}
+<blue>This allows us to focus on the difference between the normal and non-normal bootstrap intervals.</blue> [<green>It is also computationally quicker!</green>]{.fragment}
+:::
+
+
+## Exercise 5 {auto-animate="true"}
+
+:::{.callout-question}
+Given the apparent non-normality of the model residuals, we may be motivated to compute the PIs using the bootstrap, rather than using the normal distribution critical values.
+:::
+
+<div style="height: 0.5em;"></div>
+
+<blue>Bootstrapping: </blue>Constructing an empirical distribution by resampling from the data itself <teal>$\to$ treat the observed sample as if it were the population distribution</teal>
+<div style="height: 0.5em;"></div>
+
+
+```{r}
+AR4GARCH11fBS <- ugarchboot(AR4GARCH11, method="Partial", 
+                        n.ahead=h, n.bootpred=5000)
+```
+
+<div style="height: 0.5em;"></div>
+
+
+:::{.callout-note title="What is happening behind the scenes?"}
+
+In each bootstrapping experiment, when `method="Full"`:
+
+
+- <teal>Draw a bootstrapped sample, with replacement, from the original data, and re-estimate the model parameters.</teal>
+
+- Construct the residuals using the estimated parameters 
+
+- Draw a bootstrapped sample (in our case, of length `n.ahead=h`), with replacement, from the observed set of residuals.
+
+- Recalculate the forecasts given this sample and construct PIs.
+
+The number of experiments is set under `n.bootpred=5000`.
+:::
+
+
+
+## Exercise 5 {auto-animate="true"}
+
+:::{.callout-question}
+Given the apparent non-normality of the model residuals, we may be motivated to compute the PIs using the bootstrap, rather than using the normal distribution critical values.
+:::
+
+<div style="height: 0.5em;"></div>
+
+```{r}
+AR4GARCH11fBS <- ugarchboot(AR4GARCH11, method="Partial", 
+                        n.ahead=h, n.bootpred=5000)
+```
+
+:::{.panel-tabset}
+
+## Forecast Paths
+
+The object produced by `ugarchboot` contains a matrix `fseries` of forecast series. Here, each row corresponds to a simulated forecast path, and there are 5000 of them.
+
+<div style="height: 0.5em;"></div>
+
+
+```{r}
+print(AR4GARCH11fBS@fseries)
+```
+
+
+## Bootstrapped PIs
+<div style="height: 0.3em;"></div>
+Since bootstrapping involves randomness through data resampling, my prediction intervals should be similar to yours, though not exactly identical.
+<div style="height: 0.5em;"></div>
+```{r}
+LowerBS <- apply(AR4GARCH11fBS@fseries, 2, quantile, probs=0.025)
+UpperBS <- apply(AR4GARCH11fBS@fseries, 2, quantile, probs=0.975)
+MedianBS <- apply(AR4GARCH11fBS@fseries, 2, quantile, probs=0.5)
+
+print(round(cbind(LowerBS, UpperBS, MedianBS),3))
+```
+<div style="height: 0.5em;"></div>
+
+The median (50% quantile) is taken here as the "Point Forecast".
+
+## Normal PIs (from Q3)
+<div style="height: 0.5em;"></div>
+The Prediction Intervals and Point Forecasts (Mean) from Question 3 were included here for reference.
+<div style="height: 0.5em;"></div>
+```{r}
+NormalPI <- cbind(Lower, Upper, Point)
+print(round(NormalPI,3))
+```
+
+## Plot
+
+```{r echo=FALSE}
+#| fig-width: 14
+#| fig-height: 5.5
+
+Y_trimmed <- ts(Y[(length(Y)-19):length(Y)], start = (length(Y)-19))
+LowerBS <- ts(LowerBS, start = 5519)
+UpperBS <- ts(UpperBS, start = 5519)
+MedianBS <- ts(MedianBS, start = 5519)
+
+LowerNorm <- ts(Lower, start = 5519)
+UpperNorm <- ts(Upper, start = 5519)
+PointNorm <- ts(Point, start = 5519)
+
+plot(
+  Y_trimmed, type = "l",
+  main = "AR(4)-GARCH(1,1): Normal and Bootstrapped Prediction Intervals",
+  ylab = "S&P 500 Returns",
+  xlim = c(5499, 5524),
+  ylim = c(-6,6)
+)
+abline(h = 0, lty = 2)
+lines(LowerBS, col = "blue", lty = 3, lwd = 1.5)
+lines(UpperBS, col = "blue", lty = 3, lwd = 1.5)
+lines(MedianBS, col = "blue", lty = 1, lwd = 1.5)
+lines(LowerNorm, col = "red", lty = 3, lwd = 1.5)
+lines(UpperNorm, col = "red", lty = 3, lwd = 1.5)
+lines(PointNorm, col = "red", lty = 1, lwd = 1.5)
+points(Yf, col = "black", pch = 19, cex = 0.5)
+
+legend(
+  "bottomleft",                               
+  legend = c("Bootstrapped Forecast (Median)", "Bootstrapped 95% Prediction Interval",
+    "Normal Forecast (Mean)", "Normal 95% Prediction Interval", "Actual Values"),
+  col = c("blue", "blue", "red", "red", "black"),  
+  lty = c(1, 3, 1, 3, NA),                        
+  lwd = c(1.5, 1.5, 1.5, 1.5, NA),                
+  pch = c(NA, NA, NA, NA, 19),                    
+  pt.cex = c(NA, NA, NA, NA, 0.8),                
+  bty = "n"                                   
+)
+```
+
+
+
+## Plot Code
+```{r eval=FALSE}
+#| fig-width: 14
+#| fig-height: 5.5
+
+Y_trimmed <- ts(Y[(length(Y)-19):length(Y)], start = (length(Y)-19))
+LowerBS <- ts(LowerBS, start = 5519)
+UpperBS <- ts(UpperBS, start = 5519)
+MedianBS <- ts(MedianBS, start = 5519)
+
+LowerNorm <- ts(Lower, start = 5519)
+UpperNorm <- ts(Upper, start = 5519)
+PointNorm <- ts(Point, start = 5519)
+
+plot(
+  Y_trimmed, type = "l",
+  main = "AR(4)-GARCH(1,1): Normal and Bootstrapped Prediction Intervals",
+  ylab = "S&P 500 Returns",
+  xlim = c(5499, 5524),
+  ylim = c(-6,6)
+)
+abline(h = 0, lty = 2)
+lines(LowerBS, col = "blue", lty = 3, lwd = 1.5)
+lines(UpperBS, col = "blue", lty = 3, lwd = 1.5)
+lines(MedianBS, col = "blue", lty = 1, lwd = 1.5)
+lines(LowerNorm, col = "red", lty = 3, lwd = 1.5)
+lines(UpperNorm, col = "red", lty = 3, lwd = 1.5)
+lines(PointNorm, col = "red", lty = 1, lwd = 1.5)
+points(Yf, col = "black", pch = 19, cex = 0.5)
+
+legend(
+  "bottomleft",                               
+  legend = c("Bootstrapped Forecast (Median)", "Bootstrapped 95% Prediction Interval",
+    "Normal Forecast (Mean)", "Normal 95% Prediction Interval", "Actual Values"),
+  col = c("blue", "blue", "red", "red", "black"),  
+  lty = c(1, 3, 1, 3, NA),                        
+  lwd = c(1.5, 1.5, 1.5, 1.5, NA),                
+  pch = c(NA, NA, NA, NA, 19),                    
+  pt.cex = c(NA, NA, NA, NA, 0.8),                
+  bty = "n"                                   
+)
+```
+
+:::
+
+
+## Exercise 5 {auto-animate="true"}
+:::{.callout-question}
+Compare the bootstrap results to the mean point forecasts and normal prediction intervals in question 4.
+:::
+<div style="height: 0.5em;"></div>
+:::{.panel-tabset}
+
+## Plot
+
+```{r echo=FALSE}
+#| fig-width: 14
+#| fig-height: 5.5
+
+Y_trimmed <- ts(Y[(length(Y)-19):length(Y)], start = (length(Y)-19))
+LowerBS <- ts(LowerBS, start = 5519)
+UpperBS <- ts(UpperBS, start = 5519)
+MedianBS <- ts(MedianBS, start = 5519)
+
+LowerNorm <- ts(Lower, start = 5519)
+UpperNorm <- ts(Upper, start = 5519)
+PointNorm <- ts(Point, start = 5519)
+
+plot(
+  Y_trimmed, type = "l",
+  main = "AR(4)-GARCH(1,1): Normal and Bootstrapped Prediction Intervals",
+  ylab = "S&P 500 Returns",
+  xlim = c(5499, 5524),
+  ylim = c(-6,6)
+)
+abline(h = 0, lty = 2)
+lines(LowerBS, col = "blue", lty = 3, lwd = 1.5)
+lines(UpperBS, col = "blue", lty = 3, lwd = 1.5)
+lines(MedianBS, col = "blue", lty = 1, lwd = 1.5)
+lines(LowerNorm, col = "red", lty = 3, lwd = 1.5)
+lines(UpperNorm, col = "red", lty = 3, lwd = 1.5)
+lines(PointNorm, col = "red", lty = 1, lwd = 1.5)
+points(Yf, col = "black", pch = 19, cex = 0.5)
+
+legend(
+  "bottomleft",                               
+  legend = c("Bootstrapped Forecast (Median)", "Bootstrapped 95% Prediction Interval",
+    "Normal Forecast (Mean)", "Normal 95% Prediction Interval", "Actual Values"),
+  col = c("blue", "blue", "red", "red", "black"),  
+  lty = c(1, 3, 1, 3, NA),                        
+  lwd = c(1.5, 1.5, 1.5, 1.5, NA),                
+  pch = c(NA, NA, NA, NA, 19),                    
+  pt.cex = c(NA, NA, NA, NA, 0.8),                
+  bty = "n"                                   
+)
+```
+- Visually there are not huge differences between the bootstrap and normal results. 
+
+- Both upper and lower bounds of bootstrap PIs lie below the corresponding normal PIs <teal>$\to$ consistent with the negative skewness seen in the standardised residuals.</teal>
+
+## RMSE
+Normal (<blue>Mean</blue> as point forecast)
+```{r}
+RMSE <- sqrt(mean(ForecastError^2))
+print(RMSE)
+```
+<div class="horizontal-line"></div>
+
+
+Bootstrapping (<teal>Median</teal> as point forecast)
+```{r}
+MedianErrors <- Yf-MedianBS
+RMSE_Median <- sqrt(mean(MedianErrors^2))
+print(RMSE_Median)
+```
+
+<div class="horizontal-line"></div>
+<blue>The RMSE for the median is slightly different than that for the mean, although this should not be over-stated since the practical differences between the two sets of forecasts are clearly very small.</blue>
+
+
+## Why Median?
+Why we would consider the median instead of mean for forecasting, when we know the conditional mean is the optimal forecasting function?
+
+- The conditional mean minimises the <blue>mean squared errors (MSE)</blue>:
+$$\textsf{Mean Squared Error}=\frac{1}{h}\sum^{n+h}_{t=n+1}\widehat{U}_{t}^{2}$$
+
+- The conditional median minimises the <blue>mean absolute errors (MAE)</blue>:
+$$\textsf{Mean Absolute Error}=\frac{1}{h}\sum^{n+h}_{t=n+1}\left|\widehat{U}_{t}\right|$$
+
+
+<div style="margin-top: -1em;"></div>
+:::{.callout-note}
+<blue>**Note:** The full model for the median would involve the estimation of *conditional quantiles*.</blue> Nevertheless, bootstrapping is an interesting sensitivity analysis for the importance of non-normality for the forecasts and intervals from the model.
+:::
+
+
+## MAE
+<div style="height: 0.5em;"></div>
+We can compare the MAEs for the mean and median forecasts as follows, but there is little difference here because the forecasts themselves are so similar.
+<div class="horizontal-line"></div>
+Normal (<blue>Mean</blue> as point forecast)
+```{r}
+MAE_mean <- mean(abs(AR4GARCH11Forecasts$Error))
+print(MAE_mean)
+```
+<div class="horizontal-line"></div>
+
+
+Bootstrapping (<teal>Median</teal> as point forecast)
+```{r}
+MAE_median <- mean(abs(MedianErrors))
+print(MAE_median)
+```
+
+
+## What matters for PIs?
+
+:::{.callout-note}
+In this case it might seem surprising that there is not a great difference between the bootstrap and normal prediction intervals, given that the standardised residuals are clearly non-normal (as shown in Question 3b).
+:::
+
+- While the skewness and kurtosis in 3(b) deviate from those from a normal distribution, these moments are not directly relevant for constructing PIs.
+
+- Of direct relevance are the quantiles of the standardised residuals:
+
+```{r}
+Q_BS <- quantile(Us, probs=c(0.025,0.975))
+Q_Norm <- qnorm(c(0.025,0.975), mean=mean(Us), sd=sd(Us))
+print(round(rbind(Q_BS, Q_Norm), 3))
+```
+<div style="height: 0.5em;"></div>
+This reflects the downward shift in the prediction intervals seen in the plot.
+
+## Remarks
+<blue>Why didn't we do a normality test, even if there is one?</blue>
+
+It is quite common to see formal hypothesis tests for normality (e.g. Jarque-Bera tests) being applied in this type of data analysis.
+
+  - They are not that useful in practice.
+  - Because we know that no data is ever exactly normally distributed <teal>$\to$ $H_0$: Normality is (almost always technically) false</teal>.
+  
+<blue>What matters more $\to$ Does the distribution of the standardised residuals materially influence forecasts and prediction intervals?</blue>
+
+  - Quantiles and bootstrapping provide direct, practical ways to assess this impact.
+  - Skewness, kurtosis, and formal normality tests offer little practical insight for this purpose.
+:::
+
+
+
+
+
+
+## {data-background-color="#000F46"}
+<div style="height: 85vh; display: flex; align-items: center; justify-content: center; color: white; font-size: 2em;">
+Thank you for coming!
+</div>
+
+
+
+<script>
+document.querySelectorAll("myimage").forEach(el => {
+  const src = el.getAttribute("src");
+  const width = el.getAttribute("width") || "100%";
+
+  const img = document.createElement("img");
+  img.src = src;
+  img.style.width = width;
+  img.style.maxWidth = "100%";  // prevent overflow
+  el.style.display = "block";
+  el.style.textAlign = "center";
+  
+  el.appendChild(img);
+});
+</script>
